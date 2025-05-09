@@ -1,0 +1,152 @@
+# Arquitetura da API de Gerenciamento de Empresas para OCI
+
+## Visão Geral
+
+Esta API é projetada para gerenciar empresas, usuários e suas interações com a Oracle Cloud Infrastructure (OCI). Ela permite o registro de empresas e usuários, com diferentes níveis de acesso e a capacidade de gerar solicitações JSON para a OCI.
+
+## Stack Tecnológica
+
+- **Backend**: Node.js com Express.js
+- **Banco de Dados**: Oracle Autonomous Database
+- **Autenticação**: JWT (JSON Web Tokens)
+- **Documentação da API**: Swagger/OpenAPI
+- **Validação de Dados**: Joi/Yup
+- **Segurança**: HTTPS, CORS, Helmet
+- **Integração com OCI**: Oracle Cloud SDK para Node.js
+
+## Estrutura do Projeto
+
+```
+API_EMPRESA/
+├── src/
+│   ├── config/                 # Configurações do sistema
+│   │   ├── database.js         # Configuração conexão com banco de dados
+│   │   ├── oci-config.js       # Configuração para Oracle Cloud Infrastructure
+│   │   └── auth.js             # Configurações de autenticação (JWT)
+│   ├── controllers/            # Controladores de rotas
+│   │   ├── authController.js   # Controlador para autenticação
+│   │   ├── userController.js   # Controlador para usuários
+│   │   ├── companyController.js # Controlador para empresas
+│   │   └── ociController.js    # Controlador para integração com OCI
+│   ├── middleware/             # Middlewares
+│   │   ├── auth.js             # Middleware de autenticação
+│   │   ├── rbac.js             # Controle de acesso baseado em papel
+│   │   ├── error.js            # Tratamento de erros
+│   │   └── validation.js       # Validação de requisições
+│   ├── models/                 # Modelos de dados
+│   │   ├── User.js             # Modelo de usuários
+│   │   ├── Company.js          # Modelo de empresas
+│   │   ├── Role.js             # Modelo de funções/papéis
+│   │   └── OciRequest.js       # Modelo de solicitações OCI
+│   ├── routes/                 # Rotas da API
+│   │   ├── auth.js             # Rotas de autenticação
+│   │   ├── users.js            # Rotas de usuários
+│   │   ├── companies.js        # Rotas de empresas
+│   │   └── oci.js              # Rotas de integração com OCI
+│   ├── services/               # Serviços de negócio
+│   │   ├── userService.js      # Serviço de usuários
+│   │   ├── companyService.js   # Serviço de empresas
+│   │   └── ociService.js       # Serviço de integração com OCI
+│   ├── utils/                  # Utilitários
+│   │   ├── logger.js           # Sistema de logs
+│   │   ├── encryption.js       # Funções de criptografia
+│   │   └── validators.js       # Validadores comuns
+│   └── app.js                  # Configuração principal da aplicação
+├── database/                   # Scripts SQL
+│   ├── schema.sql              # Definição de tabelas
+│   └── seed.sql                # Dados iniciais
+├── tests/                      # Testes
+│   ├── unit/                   # Testes unitários
+│   └── integration/            # Testes de integração
+├── docs/                       # Documentação
+│   └── swagger.yaml            # Documentação da API
+├── .env.example                # Exemplo de variáveis de ambiente
+├── package.json                # Dependências e scripts
+└── README.md                   # Documentação básica
+```
+
+## Modelos de Dados
+
+### Usuário
+- ID (PK)
+- Nome
+- Email (único)
+- Senha (hash)
+- Empresa ID (FK)
+- Papel/Função ID (FK)
+- Status (ativo, pendente, inativo)
+- Data de Criação
+- Data de Atualização
+
+### Empresa
+- ID (PK)
+- Nome
+- CNPJ (único)
+- Endereço
+- Telefone
+- Email de Contato
+- Status (ativo, inativo)
+- Data de Criação
+- Data de Atualização
+
+### Papel/Função
+- ID (PK)
+- Nome (Admin, Gerente, Operador)
+- Descrição
+- Permissões (JSON)
+
+### Solicitação OCI
+- ID (PK)
+- Usuário ID (FK)
+- Empresa ID (FK)
+- Tipo de Solicitação
+- Dados JSON
+- Status (pendente, enviado, erro)
+- Resposta JSON
+- Data de Criação
+- Data de Atualização
+
+## Fluxos Principais
+
+### Autenticação e Registro de Usuários
+1. O usuário se registra fornecendo detalhes básicos e empresa
+2. O administrador recebe notificação e aprova o novo usuário
+3. O usuário recebe notificação por email e pode acessar o sistema
+4. Autenticação via JWT com expiração e refresh tokens
+
+### Gerenciamento de Empresas
+1. Administradores podem criar novas empresas
+2. Gerentes podem gerenciar usuários dentro de sua empresa
+3. Cada usuário está associado a exatamente uma empresa
+4. Empresas podem ter múltiplos usuários com diferentes papéis
+
+### Interação com OCI
+1. Operadores podem gerar JSONs para a API da OCI
+2. O sistema valida os dados antes de enviar
+3. As requisições são logadas e armazenadas
+4. O status das requisições é monitorado e atualizado
+
+### Painel de Controle
+1. Interface adaptativa baseada no papel do usuário
+2. Administradores veem todas as empresas e usuários
+3. Gerentes veem usuários de sua empresa
+4. Operadores veem suas próprias solicitações e status
+
+## Segurança
+
+- Implementação de HTTPS
+- Senhas armazenadas com hash e salt (bcrypt)
+- Autenticação via JWT com expiração
+- CORS configurado para permitir apenas origens confiáveis
+- Controle de acesso baseado em papel (RBAC)
+- Validação de todas as entradas
+- Sanitização de dados para prevenir injeção SQL e XSS
+- Limite de taxa para prevenir ataques de força bruta
+- Auditoria de ações sensíveis
+
+## Integração com OCI
+
+- Autenticação segura com a API da OCI
+- Validação de formato JSON conforme especificações da OCI
+- Armazenamento de logs de tentativas e resultados
+- Tratamento de erros e tentativas de reenvio automático quando apropriado

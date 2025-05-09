@@ -1,0 +1,142 @@
+-- Definição do esquema de banco de dados para API_EMPRESA
+-- Oracle Autonomous Database
+
+-- Tabela de papéis/funções de usuário
+CREATE TABLE roles (
+    role_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR2(50) NOT NULL UNIQUE,
+    description VARCHAR2(255),
+    permissions CLOB, -- JSON com permissões detalhadas
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela de empresas
+CREATE TABLE companies (
+    company_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR2(100) NOT NULL,
+    cnpj VARCHAR2(18) NOT NULL UNIQUE,
+    address VARCHAR2(255),
+    city VARCHAR2(100),
+    state VARCHAR2(2),
+    postal_code VARCHAR2(10),
+    phone VARCHAR2(20),
+    email VARCHAR2(100),
+    status VARCHAR2(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela de usuários
+CREATE TABLE users (
+    user_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    first_name VARCHAR2(50) NOT NULL,
+    last_name VARCHAR2(50) NOT NULL,
+    email VARCHAR2(100) NOT NULL UNIQUE,
+    password_hash VARCHAR2(255) NOT NULL,
+    password_salt VARCHAR2(100) NOT NULL,
+    company_id NUMBER NOT NULL,
+    role_id NUMBER NOT NULL,
+    status VARCHAR2(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACTIVE', 'INACTIVE')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP,
+    CONSTRAINT fk_user_company FOREIGN KEY (company_id) REFERENCES companies(company_id),
+    CONSTRAINT fk_user_role FOREIGN KEY (role_id) REFERENCES roles(role_id)
+);
+
+-- Tabela de solicitações JSON para OCI
+CREATE TABLE oci_requests (
+    request_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id NUMBER NOT NULL,
+    company_id NUMBER NOT NULL,
+    request_type VARCHAR2(50) NOT NULL,
+    request_data CLOB NOT NULL, -- JSON com dados da solicitação
+    status VARCHAR2(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SENT', 'ERROR', 'COMPLETED')),
+    response_data CLOB, -- JSON com resposta da OCI
+    error_message VARCHAR2(4000),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    CONSTRAINT fk_request_user FOREIGN KEY (user_id) REFERENCES users(user_id),
+    CONSTRAINT fk_request_company FOREIGN KEY (company_id) REFERENCES companies(company_id)
+);
+
+-- Tabela de logs de auditoria
+CREATE TABLE audit_logs (
+    log_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id NUMBER,
+    action VARCHAR2(100) NOT NULL,
+    entity_type VARCHAR2(50) NOT NULL,
+    entity_id NUMBER,
+    details CLOB,
+    ip_address VARCHAR2(50),
+    user_agent VARCHAR2(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_log_user FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+-- Inserir papéis padrão do sistema
+INSERT INTO roles (name, description, permissions) VALUES 
+('ADMIN', 'Administrador do sistema com acesso total', '{"all": true}');
+
+INSERT INTO roles (name, description, permissions) VALUES 
+('MANAGER', 'Gerente com permissões para gerenciar usuários da empresa', 
+'{"users": {"view": true, "create": true, "update": true, "delete": false}, 
+  "companies": {"view": true, "update": true}, 
+  "oci_requests": {"view": true}}');
+
+INSERT INTO roles (name, description, permissions) VALUES 
+('OPERATOR', 'Operador com permissões para gerar solicitações JSON', 
+'{"users": {"view": true}, 
+  "companies": {"view": true}, 
+  "oci_requests": {"view": true, "create": true}}');
+
+-- Criar uma empresa administrativa inicial
+INSERT INTO companies (name, cnpj, address, city, state, postal_code, phone, email, status) 
+VALUES ('Administração do Sistema', '00000000000000', 'Endereço da Administração', 'São José dos Pinhais', 'PR', '00000-000', '(00) 0000-0000', 'admin@sistema.com', 'ACTIVE');
+
+-- Criar um gatilho para atualizar o campo updated_at automaticamente
+CREATE OR REPLACE TRIGGER update_companies_updated_at
+BEFORE UPDATE ON companies
+FOR EACH ROW
+BEGIN
+    :NEW.updated_at := CURRENT_TIMESTAMP;
+END;
+/
+
+CREATE OR REPLACE TRIGGER update_users_updated_at
+BEFORE UPDATE ON users
+FOR EACH ROW
+BEGIN
+    :NEW.updated_at := CURRENT_TIMESTAMP;
+END;
+/
+
+CREATE OR REPLACE TRIGGER update_roles_updated_at
+BEFORE UPDATE ON roles
+FOR EACH ROW
+BEGIN
+    :NEW.updated_at := CURRENT_TIMESTAMP;
+END;
+/
+
+CREATE OR REPLACE TRIGGER update_oci_requests_updated_at
+BEFORE UPDATE ON oci_requests
+FOR EACH ROW
+BEGIN
+    :NEW.updated_at := CURRENT_TIMESTAMP;
+END;
+/
+
+-- Criar índices para otimizar consultas
+CREATE INDEX idx_users_company ON users(company_id);
+CREATE INDEX idx_users_role ON users(role_id);
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_status ON users(status);
+CREATE INDEX idx_companies_status ON companies(status);
+CREATE INDEX idx_oci_requests_user ON oci_requests(user_id);
+CREATE INDEX idx_oci_requests_company ON oci_requests(company_id);
+CREATE INDEX idx_oci_requests_status ON oci_requests(status);
+CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);

@@ -1,52 +1,131 @@
-// config/database.js - Configuração do banco de dados Oracle
-const { Sequelize } = require('sequelize');
-const winston = require('winston');
+// config/database.js - Configuração da conexão com o Oracle Database
 
-// Configurações de conexão com Oracle
-const sequelize = new Sequelize(
-  process.env.DB_NAME,
-  process.env.DB_USER,
-  process.env.DB_PASSWORD,
-  {
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    dialect: 'oracle',
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    dialectOptions: {
-      connectString: process.env.DB_TNS_NAME,
-      ssl: process.env.DB_SSL === 'true',
-    },
-    pool: {
-      max: 10,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
-    },
-    define: {
-      timestamps: true,
-      underscored: true,
-      freezeTableName: false,
-      charset: 'utf8',
-      dialectOptions: {
-        collate: 'utf8_general_ci'
+const oracledb = require('oracledb');
+const logger = require('../utils/logger');
+
+// Carregar variáveis de ambiente
+require('dotenv').config();
+
+// Configurar oracledb para autocommit
+oracledb.autoCommit = true;
+
+// Definir um pool de conexões
+const dbConfig = {
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  connectString: process.env.DB_CONNECTION_STRING,
+  poolMin: 10,
+  poolMax: 50,
+  poolIncrement: 5
+};
+
+// Inicializar o pool de conexões
+async function initialize() {
+  try {
+    // Criar um pool de conexões que será mantido durante o ciclo de vida da aplicação
+    await oracledb.createPool(dbConfig);
+    logger.info('Pool de conexões com o banco de dados Oracle inicializado com sucesso');
+  } catch (error) {
+    logger.error('Erro ao inicializar o pool de conexões Oracle:', error);
+    throw error;
+  }
+}
+
+// Obter uma conexão do pool
+async function getConnection() {
+  try {
+    return await oracledb.getConnection();
+  } catch (error) {
+    logger.error('Erro ao obter conexão do pool:', error);
+    throw error;
+  }
+}
+
+// Executar uma consulta SQL
+async function execute(sql, binds = [], options = {}) {
+  let connection;
+  try {
+    connection = await getConnection();
+    
+    // Configurar opções padrão se não fornecidas
+    const defaultOptions = {
+      outFormat: oracledb.OUT_FORMAT_OBJECT, // Retornar resultados como objetos
+      autoCommit: true                      // Commit automático
+    };
+    
+    const queryOptions = { ...defaultOptions, ...options };
+    
+    // Executar a consulta
+    const result = await connection.execute(sql, binds, queryOptions);
+    return result;
+  } catch (error) {
+    logger.error('Erro ao executar consulta SQL:', error);
+    throw error;
+  } finally {
+    // Sempre liberar a conexão de volta para o pool
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (error) {
+        logger.error('Erro ao fechar conexão:', error);
       }
     }
   }
-);
+}
 
-// Função para testar conexão
-const testConnection = async () => {
+// Fechar o pool de conexões
+async function close() {
   try {
-    await sequelize.authenticate();
-    console.log('Conexão com banco de dados estabelecida com sucesso.');
-    return true;
+    await oracledb.getPool().close(10); // Tempo limite em segundos para esperar conexões abertas
+    logger.info('Pool de conexões Oracle fechado com sucesso');
   } catch (error) {
-    console.error('Erro ao conectar com o banco de dados:', error);
-    return false;
+    logger.error('Erro ao fechar o pool de conexões Oracle:', error);
+    throw error;
   }
-};
+}
+
+// Wrapper para transações
+async function executeTransaction(callback) {
+  let connection;
+  try {
+    connection = await getConnection();
+    
+    // Desativar autocommit para início da transação
+    await connection.execute('SET TRANSACTION READ WRITE');
+    
+    // Executar o callback com a conexão
+    const result = await callback(connection);
+    
+    // Commit da transação
+    await connection.commit();
+    
+    return result;
+  } catch (error) {
+    // Rollback em caso de erro
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        logger.error('Erro ao realizar rollback:', rollbackError);
+      }
+    }
+    logger.error('Erro na transação:', error);
+    throw error;
+  } finally {
+    // Liberar a conexão de volta para o pool
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (error) {
+        logger.error('Erro ao fechar conexão após transação:', error);
+      }
+    }
+  }
+}
 
 module.exports = {
-  sequelize,
-  testConnection
+  initialize,
+  execute,
+  close,
+  executeTransaction
 };
